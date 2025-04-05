@@ -73,7 +73,7 @@ def recognize_face(frame, db_path=DB_PATH):
             name_found = os.path.basename(identity).split(".")[0]
             return name_found
         else:
-            return "Unknown"
+            return "Not authourized"
     except Exception as e:
         print("Lỗi:", e)
         return "Error"
