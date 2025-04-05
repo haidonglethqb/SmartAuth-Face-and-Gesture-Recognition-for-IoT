@@ -71,12 +71,18 @@ def recognize_face(frame, db_path=DB_PATH):
         if len(result[0]) > 0:
             identity = result[0].iloc[0]['identity']
             name_found = os.path.basename(identity).split(".")[0]
+
+            # Loại bỏ phần "_1" nếu có
+            if "_" in name_found:
+                name_found = name_found.split("_")[0]
+
             return name_found
         else:
-            return "Not authourized"
+            return "Not authorized"
     except Exception as e:
         print("Lỗi:", e)
         return "Error"
+
 
 def recognize_background():
     global name, frame_to_check
@@ -103,7 +109,7 @@ def start_recognition():
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
     frame_count = 0
-    recognition_interval = 30  # Nhận diện mỗi N frame
+    recognition_interval = 10  # Nhận diện mỗi N frame
 
     while True:
         ret, frame = cap.read()
@@ -126,7 +132,8 @@ def start_recognition():
             # Lấy ảnh nhỏ để nhận diện mỗi N frame
             if frame_count % recognition_interval == 0 and frame_to_check is None:
                 face_crop = frame[y:y + h, x:x + w]
-                face_crop = cv2.resize(face_crop, (0, 0), fx=0.5, fy=0.5)
+                face_crop = cv2.resize(face_crop, (100, 100))  # Đặt kích thước ảnh là 100x100
+
                 with result_lock:
                     frame_to_check = face_crop.copy()
 
