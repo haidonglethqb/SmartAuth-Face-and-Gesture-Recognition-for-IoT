@@ -39,7 +39,7 @@ def add_face_from_webcam():
     print("📸 Nhấn 's' để chụp ảnh, hoặc 'q' để thoát")
 
     count = 0
-    max_images = 10
+    max_images = 50
 
     while True:
         ret, frame = cap.read()
@@ -103,7 +103,7 @@ def start_recognition():
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
     frame_count = 0
-    recognition_interval = 45
+    recognition_interval = 30  # Nhận diện mỗi N frame
 
     while True:
         ret, frame = cap.read()
