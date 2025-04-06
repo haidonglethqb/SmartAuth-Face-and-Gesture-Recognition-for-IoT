@@ -4,7 +4,6 @@ import time
 import threading
 import requests
 from deepface import DeepFace
-import tempfile
 
 # Ẩn cảnh báo TensorFlow
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -34,14 +33,14 @@ def send_telegram_alert(message, image_path=None):
         }
 
         # Gửi tin nhắn văn bản
-        response = requests.post(url, data=payload)
+        requests.post(url, data=payload)
 
         # Nếu có ảnh, gửi ảnh kèm theo
         if image_path:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
             with open(image_path, 'rb') as photo:
                 files = {'photo': photo}
-                response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files=files)
+                requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files=files)
 
     except Exception as e:
         print(f"⚠️ Không thể gửi Telegram: {e}")
@@ -130,11 +129,21 @@ def recognize_background():
             if new_name == "Not authorized":
                 if previous_name != "Not authorized":
                     print("🔒 Người lạ xuất hiện!")
-                    # Lưu ảnh người lạ tạm thời
-                    temp_image_path = tempfile.mktemp(suffix='.jpg')
-                    cv2.imwrite(temp_image_path, frame)
+
+                    # Tạo thư mục nếu chưa có
+                    intruder_dir = "intruders"
+                    if not os.path.exists(intruder_dir):
+                        os.makedirs(intruder_dir)
+
+                    # Tạo tên file theo timestamp
+                    timestamp = time.strftime("%Y%m%d-%H%M%S")
+                    image_path = os.path.join(intruder_dir, f"intruder_{timestamp}.jpg")
+
+                    # Lưu ảnh người lạ
+                    cv2.imwrite(image_path, frame)
+
                     # Gửi thông báo kèm ảnh
-                    send_telegram_alert("🚨 CẢNH BÁO: Có người lạ xuất hiện trước camera!", temp_image_path)
+                    send_telegram_alert("🚨 CẢNH BÁO: Có người lạ xuất hiện trước camera!", image_path)
             elif new_name != previous_name:
                 print(f"✅ Nhận diện: {new_name}")
             previous_name = new_name
@@ -167,15 +176,11 @@ def start_recognition():
             display_name = name
 
         for (x, y, w, h) in faces:
-            # Tô khung xanh nếu nhận diện được, đỏ nếu là người lạ
             color = (0, 255, 0) if display_name != "Not authorized" else (0, 0, 255)
-
-            # Vẽ khung và tên
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
             cv2.putText(frame, display_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
                         0.8, color, 2)
 
-            # Lấy ảnh nhỏ để nhận diện mỗi N frame
             if frame_count % recognition_interval == 0 and frame_to_check is None:
                 face_crop = frame[y:y + h, x:x + w]
                 face_crop = cv2.resize(face_crop, (160, 160))
