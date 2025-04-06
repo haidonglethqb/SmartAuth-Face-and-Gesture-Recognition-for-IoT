@@ -2,12 +2,18 @@ import os
 import cv2
 import time
 import threading
+import requests
 from deepface import DeepFace
+import tempfile
 
 # Ẩn cảnh báo TensorFlow
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 DB_PATH = "database"
+
+# Thông tin Telegram Bot (🔁 Thay bằng giá trị thật)
+TELEGRAM_TOKEN = "7695555624:AAHJoIjeriV_AvsUY6KW2rOawkKzqTc71UU"
+TELEGRAM_CHAT_ID = "5788605495"  # Chat ID của bạn
 
 # Tạo thư mục nếu chưa có
 if not os.path.exists(DB_PATH):
@@ -18,6 +24,29 @@ name = "Scanning......"
 frame_to_check = None
 result_lock = threading.Lock()
 
+# Hàm gửi thông báo kèm ảnh qua Telegram
+def send_telegram_alert(message, image_path=None):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message
+        }
+
+        # Gửi tin nhắn văn bản
+        response = requests.post(url, data=payload)
+
+        # Nếu có ảnh, gửi ảnh kèm theo
+        if image_path:
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+            with open(image_path, 'rb') as photo:
+                files = {'photo': photo}
+                response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files=files)
+
+    except Exception as e:
+        print(f"⚠️ Không thể gửi Telegram: {e}")
+
+# Chọn camera sử dụng
 def select_camera():
     print("\n🖥️ Danh sách ID camera có thể là:")
     print("0: Camera mặc định (thường là tích hợp trong laptop)")
@@ -30,6 +59,7 @@ def select_camera():
         print("⚠️ ID không hợp lệ. Dùng mặc định: 0")
         return 0
 
+# Thêm khuôn mặt mới vào cơ sở dữ liệu
 def add_face_from_webcam():
     name_input = input("Nhập tên người dùng: ").strip()
     filename = f"{DB_PATH}/{name_input}_{{}}.jpg"
@@ -65,6 +95,7 @@ def add_face_from_webcam():
     cap.release()
     cv2.destroyAllWindows()
 
+# Nhận diện khuôn mặt từ ảnh và cơ sở dữ liệu
 def recognize_face(frame, db_path=DB_PATH):
     try:
         result = DeepFace.find(img_path=frame, db_path=db_path, enforce_detection=False)
@@ -82,6 +113,7 @@ def recognize_face(frame, db_path=DB_PATH):
         print("Lỗi:", e)
         return "Error"
 
+# Nhận diện nền (lặp liên tục)
 def recognize_background():
     global name, frame_to_check
     previous_name = ""
@@ -98,10 +130,16 @@ def recognize_background():
             if new_name == "Not authorized":
                 if previous_name != "Not authorized":
                     print("🔒 Người lạ xuất hiện!")
+                    # Lưu ảnh người lạ tạm thời
+                    temp_image_path = tempfile.mktemp(suffix='.jpg')
+                    cv2.imwrite(temp_image_path, frame)
+                    # Gửi thông báo kèm ảnh
+                    send_telegram_alert("🚨 CẢNH BÁO: Có người lạ xuất hiện trước camera!", temp_image_path)
             elif new_name != previous_name:
                 print(f"✅ Nhận diện: {new_name}")
             previous_name = new_name
 
+# Bắt đầu nhận diện khuôn mặt
 def start_recognition():
     global frame_to_check, name
 
@@ -156,6 +194,7 @@ def start_recognition():
     cap.release()
     cv2.destroyAllWindows()
 
+# Menu chính
 def main_menu():
     while True:
         print("\n=== MENU ===")
