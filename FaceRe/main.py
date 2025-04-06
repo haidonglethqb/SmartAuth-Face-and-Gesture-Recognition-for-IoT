@@ -132,7 +132,7 @@ def start_recognition():
             # Lấy ảnh nhỏ để nhận diện mỗi N frame
             if frame_count % recognition_interval == 0 and frame_to_check is None:
                 face_crop = frame[y:y + h, x:x + w]
-                face_crop = cv2.resize(face_crop, (100, 100))  # Đặt kích thước ảnh là 100x100
+                face_crop = cv2.resize(face_crop, (160, 160))  # Đặt kích thước ảnh là 100x100
 
                 with result_lock:
                     frame_to_check = face_crop.copy()
