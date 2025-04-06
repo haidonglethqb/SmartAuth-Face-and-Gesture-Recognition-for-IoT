@@ -72,7 +72,6 @@ def recognize_face(frame, db_path=DB_PATH):
             identity = result[0].iloc[0]['identity']
             name_found = os.path.basename(identity).split(".")[0]
 
-            # Loại bỏ phần "_1" nếu có
             if "_" in name_found:
                 name_found = name_found.split("_")[0]
 
@@ -83,9 +82,9 @@ def recognize_face(frame, db_path=DB_PATH):
         print("Lỗi:", e)
         return "Error"
 
-
 def recognize_background():
     global name, frame_to_check
+    previous_name = ""
     while True:
         if frame_to_check is not None:
             with result_lock:
@@ -95,6 +94,13 @@ def recognize_background():
             new_name = recognize_face(frame)
             with result_lock:
                 name = new_name
+
+            if new_name == "Not authorized":
+                if previous_name != "Not authorized":
+                    print("🔒 Người lạ xuất hiện!")
+            elif new_name != previous_name:
+                print(f"✅ Nhận diện: {new_name}")
+            previous_name = new_name
 
 def start_recognition():
     global frame_to_check, name
@@ -123,16 +129,18 @@ def start_recognition():
             display_name = name
 
         for (x, y, w, h) in faces:
-            # Vẽ khung vuông quanh mặt
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            # Ghi tên người nhận diện được
+            # Tô khung xanh nếu nhận diện được, đỏ nếu là người lạ
+            color = (0, 255, 0) if display_name != "Not authorized" else (0, 0, 255)
+
+            # Vẽ khung và tên
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
             cv2.putText(frame, display_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8, (0, 255, 0), 2)
+                        0.8, color, 2)
 
             # Lấy ảnh nhỏ để nhận diện mỗi N frame
             if frame_count % recognition_interval == 0 and frame_to_check is None:
                 face_crop = frame[y:y + h, x:x + w]
-                face_crop = cv2.resize(face_crop, (160, 160))  # Đặt kích thước ảnh là 100x100
+                face_crop = cv2.resize(face_crop, (160, 160))
 
                 with result_lock:
                     frame_to_check = face_crop.copy()
@@ -147,7 +155,6 @@ def start_recognition():
 
     cap.release()
     cv2.destroyAllWindows()
-
 
 def main_menu():
     while True:
