@@ -9,23 +9,23 @@ import pickle
 from datetime import datetime
 from collections import deque
 import paho.mqtt.client as mqtt
-import ssl  # Thêm import ssl để sử dụng cho kết nối MQTT bảo mật
+import ssl 
 
-# === Cấu hình ===
+
 DATASET_DIR = "dataset"
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_TOKEN = ""
+TELEGRAM_CHAT_ID = ""
 MIN_CONFIDENCE = 0.45
-VOTE_HISTORY = 5  # Số frame vote nhận diện gần nhất
+VOTE_HISTORY = 5  
 
-# === Cấu hình MQTT HiveMQ Cloud ===
-mqtt_broker = "0030fdd1cc9b4f8dae5a436d2347d84a.s1.eu.hivemq.cloud"
+
+mqtt_broker = ""
 mqtt_port = 8883
 mqtt_user = "iot_home"
-mqtt_pass = "Tngan1724"
+mqtt_pass = ""
 mqtt_topic = "home/control"
 
-# === Tạo thư mục nếu chưa tồn tại ===
+
 os.makedirs(DATASET_DIR, exist_ok=True)
 
 known_face_encodings = []
@@ -35,7 +35,7 @@ name = "Scanning..."
 result_lock = threading.Lock()
 vote_buffer = deque(maxlen=VOTE_HISTORY)
 
-# === Gửi cảnh báo Telegram ===
+
 def send_telegram_alert(message, image_path=None):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -47,7 +47,7 @@ def send_telegram_alert(message, image_path=None):
     except Exception as e:
         print("⚠️ Không thể gửi Telegram:", e)
 
-# === Gửi thông báo MQTT ===
+
 def send_mqtt_message(client, message):
     try:
         client.publish(mqtt_topic, message)
@@ -55,7 +55,7 @@ def send_mqtt_message(client, message):
     except Exception as e:
         print(f"⚠️ Không thể gửi MQTT: {e}")
 
-# === CLAHE để tăng cường độ sáng khuôn mặt ===
+
 def apply_clahe(image):
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
@@ -64,7 +64,7 @@ def apply_clahe(image):
     merged = cv2.merge((cl, a, b))
     return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
 
-# === Load khuôn mặt đã biết ===
+
 def load_known_faces():
     global known_face_encodings, known_face_names
     if os.path.exists("encodings.pkl"):
@@ -90,7 +90,7 @@ def load_known_faces():
         pickle.dump((known_face_encodings, known_face_names), f)
     print(f"✅ Đã encode và lưu cache {len(known_face_names)} người.")
 
-# === Thêm người mới từ webcam ===
+
 def add_face_from_webcam():
     name = input("Nhập tên người mới: ").strip()
     cam_id = int(input("Nhập ID camera (0 nếu không chắc): ") or 0)
@@ -131,7 +131,7 @@ def add_face_from_webcam():
         os.remove("encodings.pkl")
     load_known_faces()
 
-# === Nhận diện nền (background thread) ===
+
 def recognize_background(client):
     global name, frame_to_check, vote_buffer
     previous_name = ""
@@ -173,7 +173,7 @@ def recognize_background(client):
 
             previous_name = voted_name
 
-# === Nhận diện trực tiếp từ webcam ===
+
 def start_recognition(client):
     global frame_to_check, name
 
@@ -222,7 +222,7 @@ def start_recognition(client):
     cap.release()
     cv2.destroyAllWindows()
 
-# === Tạo client MQTT ===
+
 def create_mqtt_client():
     client = mqtt.Client()
     client.username_pw_set(mqtt_user, mqtt_pass)
@@ -230,7 +230,7 @@ def create_mqtt_client():
     client.connect(mqtt_broker, mqtt_port, 60)
     return client
 
-# === Menu chính ===
+
 def main_menu():
     client = create_mqtt_client()
     load_known_faces()
@@ -252,6 +252,6 @@ def main_menu():
         else:
             print("❌ Lựa chọn không hợp lệ!")
 
-# === Chạy chính ===
+
 if __name__ == "__main__":
     main_menu()
