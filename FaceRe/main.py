@@ -3,215 +3,143 @@ import cv2
 import time
 import threading
 import requests
+import glob
+import numpy as np
 from deepface import DeepFace
+from imutils.video import VideoStream
 import tempfile
+import argparse
 
+# --------------------------------------------
+# Configuration & Argument Parsing
+# --------------------------------------------
+def parse_args():
+    parser = argparse.ArgumentParser(description="Cross-platform Face Recognition with Telegram Alert")
+    parser.add_argument("--db", default="database", help="Path to face images database")
+    parser.add_argument("--token", required=True, help="Telegram Bot Token (export or pass here)")
+    parser.add_argument("--chat_id", required=True, help="Telegram Chat ID to send alerts")
+    parser.add_argument("--source", default=0, help="Camera source index or path (default=0)")
+    parser.add_argument("--detector", default="retinaface", choices=["opencv", "ssd", "mtcnn", "retinaface"], help="Face detector backend")
+    parser.add_argument("--model", default="ArcFace", choices=["VGG-Face","Facenet","ArcFace","DeepFace"], help="Recognition model")
+    parser.add_argument("--threshold", type=float, default=0.4, help="Distance threshold for recognition")
+    parser.add_argument("--interval", type=int, default=5, help="Frame skip interval between recognition calls")
+    return parser.parse_args()
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+args = parse_args()
+DB_PATH = args.db
+TELEGRAM_TOKEN = args.token
+TELEGRAM_CHAT_ID = args.chat_id
+DETECTOR = args.detector
+MODEL = args.model
+THRESHOLD = args.threshold
+INTERVAL = args.interval
 
-DB_PATH = "database"
+# --------------------------------------------
+# Prepare Database Embeddings
+# --------------------------------------------
+print("🔄 Loading database embeddings...")
+embeddings = []
+names = []
+for img_path in glob.glob(os.path.join(DB_PATH, "*.jpg")):
+    try:
+        rep = DeepFace.represent(img_path=img_path, model_name=MODEL, detector_backend=DETECTOR, enforce_detection=False)
+        vec = np.array(rep[0]['embedding']) if isinstance(rep, list) else np.array(rep)
+        name = os.path.splitext(os.path.basename(img_path))[0].split("_")[0]
+        embeddings.append(vec)
+        names.append(name)
+    except Exception as e:
+        print(f"⚠️ Failed to process {img_path}: {e}")
+print(f"✅ {len(embeddings)} embeddings loaded.")
 
-
-TELEGRAM_TOKEN = ""
-TELEGRAM_CHAT_ID = ""  
-
-
-if not os.path.exists(DB_PATH):
-    os.makedirs(DB_PATH)
-
-
-name = "Scanning......"
-frame_to_check = None
-result_lock = threading.Lock()
-
-
+# --------------------------------------------
+# Telegram Alert Function
+# --------------------------------------------
 def send_telegram_alert(message, image_path=None):
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message
-        }
-
-        
-        response = requests.post(url, data=payload)
-
-        
+        base = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+        requests.post(f"{base}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": message})
         if image_path:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            with open(image_path, 'rb') as photo:
-                files = {'photo': photo}
-                response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files=files)
-
+            with open(image_path, 'rb') as img:
+                requests.post(f"{base}/sendPhoto", data={"chat_id": TELEGRAM_CHAT_ID}, files={"photo": img})
     except Exception as e:
-        print(f"⚠️ Không thể gửi Telegram: {e}")
+        print(f"⚠️ Telegram alert failed: {e}")
 
+# --------------------------------------------
+# Recognition Logic
+# --------------------------------------------
+name_lock = threading.Lock()
+current_name = None
 
-def select_camera():
-    print("\n🖥️ Danh sách ID camera có thể là:")
-    print("0: Camera mặc định (thường là tích hợp trong laptop)")
-    print("1: Camera USB rời (nếu có)")
-    print("👉 Bạn có thể thử nhập 0 hoặc 1 nếu không chắc.")
+def recognize_worker(frame):
+    global current_name
     try:
-        cam_id = int(input("Nhập ID camera muốn dùng: "))
-        return cam_id
-    except ValueError:
-        print("⚠️ ID không hợp lệ. Dùng mặc định: 0")
-        return 0
-
-
-def add_face_from_webcam():
-    name_input = input("Nhập tên người dùng: ").strip()
-    filename = f"{DB_PATH}/{name_input}_{{}}.jpg"
-
-    cam_id = select_camera()
-    cap = cv2.VideoCapture(cam_id)
-    print("📸 Nhấn 's' để chụp ảnh, hoặc 'q' để thoát")
-
-    count = 0
-    max_images = 50
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        cv2.imshow("Chụp khuôn mặt mới", frame)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('s'):
-            if count < max_images:
-                img_filename = filename.format(count + 1)
-                cv2.imwrite(img_filename, frame)
-                print(f"✅ Đã lưu ảnh tại {img_filename}")
-                count += 1
-            else:
-                print(f"⚠️ Đã chụp đủ {max_images} ảnh. Không thể chụp thêm.")
-                break
-        elif key == ord('q'):
-            print("❌ Huỷ bỏ thao tác thêm khuôn mặt.")
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-def recognize_face(frame, db_path=DB_PATH):
-    try:
-        result = DeepFace.find(img_path=frame, db_path=db_path, enforce_detection=False)
-        if len(result[0]) > 0:
-            identity = result[0].iloc[0]['identity']
-            name_found = os.path.basename(identity).split(".")[0]
-
-            if "_" in name_found:
-                name_found = name_found.split("_")[0]
-
-            return name_found
-        else:
-            return "Not authorized"
+        rep = DeepFace.represent(img_path=frame, model_name=MODEL, detector_backend=DETECTOR, enforce_detection=False)
+        emb = np.array(rep[0]['embedding']) if isinstance(rep, list) else np.array(rep)
     except Exception as e:
-        print("Lỗi:", e)
-        return "Error"
+        print(f"⚠️ Embed error: {e}")
+        return
 
+    dists = [np.linalg.norm(emb - db_emb) for db_emb in embeddings]
+    min_dist = min(dists) if dists else float('inf')
+    if min_dist < THRESHOLD:
+        idx = int(np.argmin(dists))
+        name = names[idx]
+    else:
+        name = "Not authorized"
 
-def recognize_background():
-    global name, frame_to_check
-    previous_name = ""
-    while True:
-        if frame_to_check is not None:
-            with result_lock:
-                frame = frame_to_check.copy()
-                frame_to_check = None
+    with name_lock:
+        prev = current_name
+        current_name = name
+    if name == "Not authorized" and prev != name:
+        print("🔒 Unknown detected!")
+        tmp = tempfile.mktemp(suffix='.jpg')
+        cv2.imwrite(tmp, frame)
+        send_telegram_alert("🚨 ALERT: Stranger detected!", tmp)
+    elif name != prev:
+        print(f"✅ Identified: {name}")
 
-            new_name = recognize_face(frame)
-            with result_lock:
-                name = new_name
+# --------------------------------------------
+# Main Stream Loop
+# --------------------------------------------
+print("▶️ Starting video stream...")
+# Use VideoStream for smoother capture
+vs = VideoStream(src=args.source).start()
+time.sleep(1.0)
+frame_count = 0
 
-            if new_name == "Not authorized":
-                if previous_name != "Not authorized":
-                    print("🔒 Người lạ xuất hiện!")
-                    
-                    temp_image_path = tempfile.mktemp(suffix='.jpg')
-                    cv2.imwrite(temp_image_path, frame)
-                    
-                    send_telegram_alert("🚨 CẢNH BÁO: Có người lạ xuất hiện trước camera!", temp_image_path)
-            elif new_name != previous_name:
-                print(f"✅ Nhận diện: {new_name}")
-            previous_name = new_name
+while True:
+    frame = vs.read()
+    if frame is None:
+        break
+    # Resize for speed
+    h, w = frame.shape[:2]
+    scale = 640.0 / max(w, h)
+    small = cv2.resize(frame, None, fx=scale, fy=scale)
+    rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
+    # Detect faces
+    faces = DeepFace.extract_faces(img_path = rgb, detector_backend=DETECTOR, enforce_detection=False)
+    for (x, y, face_img, region) in faces:
+        # region: (x, y, w, h) in resized coords
+        fx, fy, fw, fh = region
+        # Scale back to original frame coords
+        cx, cy, cw, ch = int(fx/scale), int(fy/scale), int(fw/scale), int(fh/scale)
+        face_crop = frame[cy:cy+ch, cx:cx+cw]
+        if frame_count % INTERVAL == 0:
+            # Launch thread for recognition
+            threading.Thread(target=recognize_worker, args=(face_crop,)).start()
+        # Draw box
+        with name_lock:
+            label = current_name or "Scanning..."
+        color = (0,255,0) if label != "Not authorized" else (0,0,255)
+        cv2.rectangle(frame, (cx, cy), (cx+cw, cy+ch), color, 2)
+        cv2.putText(frame, label, (cx, cy-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
-def start_recognition():
-    global frame_to_check, name
+    cv2.imshow("Face Recognition", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    frame_count += 1
 
-    recognition_thread = threading.Thread(target=recognize_background, daemon=True)
-    recognition_thread.start()
-
-    cam_id = select_camera()
-    cap = cv2.VideoCapture(cam_id)
-    print("🔍 Đang chạy nhận diện khuôn mặt... Nhấn 'q' để thoát.")
-
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
-    frame_count = 0
-    recognition_interval = 10  
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-
-        with result_lock:
-            display_name = name
-
-        for (x, y, w, h) in faces:
-            
-            color = (0, 255, 0) if display_name != "Not authorized" else (0, 0, 255)
-
-            
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(frame, display_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8, color, 2)
-
-            
-            if frame_count % recognition_interval == 0 and frame_to_check is None:
-                face_crop = frame[y:y + h, x:x + w]
-                face_crop = cv2.resize(face_crop, (160, 160))
-
-                with result_lock:
-                    frame_to_check = face_crop.copy()
-
-        cv2.imshow("Face Recognition", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-        frame_count += 1
-        time.sleep(0.0001)
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-def main_menu():
-    while True:
-        print("\n=== MENU ===")
-        print("1. Nhận diện khuôn mặt")
-        print("2. Thêm người dùng mới từ webcam")
-        print("0. Thoát")
-        choice = input("Chọn chức năng: ")
-
-        if choice == "1":
-            start_recognition()
-        elif choice == "2":
-            add_face_from_webcam()
-        elif choice == "0":
-            print("👋 Tạm biệt!")
-            break
-        else:
-            print("❌ Lựa chọn không hợp lệ!")
-
-if __name__ == "__main__":
-    main_menu()
+# Cleanup
+vs.stop()
+cv2.destroyAllWindows()
