@@ -11,9 +11,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 DB_PATH = "database"
 
-# Thông tin Telegram Bot (🔁 Thay bằng giá trị thật)
+
 TELEGRAM_TOKEN = ""
-TELEGRAM_CHAT_ID = ""  # Chat ID của bạn
+TELEGRAM_CHAT_ID = ""  
 
 
 if not os.path.exists(DB_PATH):
